@@ -34,9 +34,10 @@ data:
     ql: 300
   supportLevel: certified
   supportsRefreshes: true
+  supportsFileTransfer: true
   connectorTestSuitesOptions:
     - suite: unitTests
-    - suite: integrationTests
+    - suite: integrationTestsAsy
       testSecrets:
         - name: SECRET_DESTINATION-S3-ASSUME-ROLE-CONFIG
           fileName: s3_dest_assume_role_config.json
