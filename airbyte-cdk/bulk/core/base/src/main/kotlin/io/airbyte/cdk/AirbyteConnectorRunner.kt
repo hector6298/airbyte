@@ -37,9 +37,10 @@ class AirbyteDestinationRunner(
     /** CLI args. */
     args: Array<out String>,
     testEnvironments: Map<String, String> = emptyMap(),
+    isTest: Boolean = false,
     /** Micronaut bean definition overrides, used only for tests. */
     vararg testBeanDefinitions: RuntimeBeanDefinition<*>,
-) : AirbyteConnectorRunner("destination", args, testBeanDefinitions, testEnvironments) {
+) : AirbyteConnectorRunner("destination", args, testBeanDefinitions, testEnvironments, isTest) {
     companion object {
         @JvmStatic
         fun run(vararg args: String) {
@@ -51,14 +52,25 @@ class AirbyteDestinationRunner(
 /**
  * Replacement for the Micronaut CLI application runner that configures the CLI components and adds
  * the custom property source used to turn the arguments into configuration properties.
+ *
+ * @param isTest Micronaut's TEST env detection relies on inspecting the stacktrace and checking for
+ * any junit calls. This doesn't work if we launch the connector from a different thread, e.g.
+ * `Dispatchers.IO`. Allow callers to force the test env.
  */
 sealed class AirbyteConnectorRunner(
     val connectorType: String,
     val args: Array<out String>,
     val testBeanDefinitions: Array<out RuntimeBeanDefinition<*>>,
     val testProperties: Map<String, String> = emptyMap(),
+    isTest: Boolean = false,
 ) {
-    val envs: Array<String> = arrayOf(Environment.CLI, connectorType)
+    val envs: Array<String> =
+        arrayOf(Environment.CLI, connectorType) +
+            if (isTest) {
+                arrayOf(Environment.TEST)
+            } else {
+                emptyArray()
+            }
 
     inline fun <reified R : Runnable> run() {
         val picocliCommandLineFactory = PicocliCommandLineFactory(this)
@@ -82,6 +94,10 @@ sealed class AirbyteConnectorRunner(
                 )
                 .beanDefinitions(*testBeanDefinitions)
                 .start()
+        // We can't rely on the isTest value from our constructor,
+        // because that won't autodetect junit in our stacktrace.
+        // So instead we ask micronaut (which will include if we explicitly added
+        // the TEST env).
         val isTest: Boolean = ctx.environment.activeNames.contains(Environment.TEST)
         val picocliFactory: CommandLine.IFactory = MicronautFactory(ctx)
         val picocliCommandLine: CommandLine =

@@ -64,8 +64,9 @@ data object CliRunner {
                 AirbyteDestinationRunner(
                     args,
                     testProperties,
+                    isTest = true,
                     inputBeanDefinition,
-                    out.beanDefinition
+                    out.beanDefinition,
                 )
             }
         return CliRunnable(runnable, out.results)
