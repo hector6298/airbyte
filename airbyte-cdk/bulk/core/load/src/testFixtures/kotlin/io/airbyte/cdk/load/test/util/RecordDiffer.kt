@@ -53,28 +53,30 @@ class RecordDiffer(
     }
 
     /** Comparator that sorts records by their primary key */
-    private val identityComparator: Comparator<OutputRecord> = Comparator { rec1, rec2 ->
-        val pk1 = extractPrimaryKey(rec1)
-        val pk2 = extractPrimaryKey(rec2)
-        if (pk1.size != pk2.size) {
-            throw IllegalStateException(
-                "Records must have the same number of primary keys. Got $pk1 and $pk2."
-            )
-        }
-
-        // Compare each PK field in order, until we find a field that the two records differ in.
-        // If all the fields are equal, then these two records have the same PK.
-        pk1.zip(pk2)
-            .map { (pk1Field, pk2Field) -> valueComparator.compare(pk1Field, pk2Field) }
-            .firstOrNull { it != 0 }
-            ?: 0
-    }
+    private val identityComparator: Comparator<OutputRecord> =
+        Comparator.comparing<OutputRecord, Long>{ it.generationId ?: Long.MIN_VALUE }
+            .thenComparing  { rec1, rec2 ->
+                val pk1 = extractPrimaryKey(rec1)
+                val pk2 = extractPrimaryKey(rec2)
+                if (pk1.size != pk2.size) {
+                    throw IllegalStateException(
+                        "Records must have the same number of primary keys. Got $pk1 and $pk2."
+                    )
+                }
+                // Compare each PK field in order, until we find a field that the two records differ in.
+                // If all the fields are equal, then these two records have the same PK.
+                pk1.zip(pk2)
+                    .map { (pk1Field, pk2Field) -> valueComparator.compare(pk1Field, pk2Field) }
+                    .firstOrNull { it != 0 }
+                    ?: 0
+            }
 
     /**
      * Comparator to sort records by their cursor (if there is one), breaking ties with extractedAt
      */
     private val sortComparator: Comparator<OutputRecord> =
-        Comparator.comparing(
+        Comparator.comparing<OutputRecord, Long>{ it.generationId ?: Long.MIN_VALUE }
+            .thenComparing(
                 { it: OutputRecord ->
                     (if (cursor == null) IntegerValue(0) else extractCursor(it))
                 },
