@@ -10,7 +10,9 @@ import io.airbyte.cdk.load.command.DestinationCatalog
 import io.airbyte.cdk.load.command.DestinationStream
 import io.airbyte.cdk.load.data.FieldType
 import io.airbyte.cdk.load.data.IntegerType
+import io.airbyte.cdk.load.data.IntegerValue
 import io.airbyte.cdk.load.data.ObjectType
+import io.airbyte.cdk.load.data.ObjectValue
 import io.airbyte.cdk.load.message.DestinationRecord
 import io.airbyte.cdk.load.message.DestinationStreamComplete
 import io.airbyte.cdk.load.message.StreamCheckpoint
@@ -55,7 +57,7 @@ abstract class BasicFunctionalityIntegrationTest(
                 DestinationStream(
                     DestinationStream.Descriptor(randomizedNamespace, "test_stream"),
                     Append,
-                    ObjectType(linkedMapOf("id" to FieldType(IntegerType, nullable = true))),
+                    ObjectType(linkedMapOf("id" to intType)),
                     generationId = 0,
                     minimumGenerationId = 0,
                     syncId = 42,
@@ -158,7 +160,7 @@ abstract class BasicFunctionalityIntegrationTest(
                                     ),
                                     Append,
                                     ObjectType(
-                                        linkedMapOf("id" to FieldType(IntegerType, nullable = true))
+                                        linkedMapOf("id" to intType)
                                     ),
                                     generationId = 0,
                                     minimumGenerationId = 0,
@@ -171,7 +173,7 @@ abstract class BasicFunctionalityIntegrationTest(
                                     ),
                                     Append,
                                     ObjectType(
-                                        linkedMapOf("id" to FieldType(IntegerType, nullable = true))
+                                        linkedMapOf("id" to intType)
                                     ),
                                     generationId = 0,
                                     minimumGenerationId = 0,
@@ -330,7 +332,7 @@ abstract class BasicFunctionalityIntegrationTest(
                     DestinationStream(
                         DestinationStream.Descriptor(randomizedNamespace + "1", "test_stream"),
                         Append,
-                        ObjectType(linkedMapOf("id" to FieldType(IntegerType, nullable = true))),
+                        ObjectType(linkedMapOf("id" to intType)),
                         generationId = 0,
                         minimumGenerationId = 0,
                         syncId = 42,
@@ -338,7 +340,7 @@ abstract class BasicFunctionalityIntegrationTest(
                     DestinationStream(
                         DestinationStream.Descriptor(randomizedNamespace + "2", "test_stream"),
                         Append,
-                        ObjectType(linkedMapOf("id" to FieldType(IntegerType, nullable = true))),
+                        ObjectType(linkedMapOf("id" to intType)),
                         generationId = 0,
                         minimumGenerationId = 0,
                         syncId = 42,
@@ -394,5 +396,90 @@ abstract class BasicFunctionalityIntegrationTest(
                 )
             }
         )
+    }
+
+    @Test
+    open fun testFunkyStreamAndColumnNames() {
+        fun makeStream(
+            name: String,
+            schema: LinkedHashMap<String, FieldType> =
+                linkedMapOf("id" to intType),
+        ) =
+            DestinationStream(
+                DestinationStream.Descriptor(randomizedNamespace, name),
+                Append,
+                ObjectType(schema),
+                generationId = 0,
+                minimumGenerationId = 0,
+                syncId = 42,
+            )
+        // Catalog with some weird schemas
+        val catalog =
+            DestinationCatalog(
+                listOf(
+                    makeStream("streamWithCamelCase"),
+                    makeStream("stream_with_underscores"),
+                    makeStream("STREAM_WITH_ALL_CAPS"),
+                    makeStream("CapitalCase"),
+                    makeStream(
+                        "stream_with_edge_case_field_names",
+                        linkedMapOf(
+                            "id" to intType,
+                            "fieldWithCamelCase" to intType,
+                            "field_with_underscore" to intType,
+                            "FIELD_WITH_ALL_CAPS" to intType,
+                            "field_with_spécial_character" to intType,
+                            // "order" is a reserved word in many sql engines
+                            "order" to intType,
+                            "ProperCase" to intType,
+                        )
+                    ),
+                    // this is apparently trying to test for reserved words?
+                    // https://github.com/airbytehq/airbyte/pull/1753
+                    makeStream(
+                        "groups",
+                        linkedMapOf("id" to intType, "authorization" to intType)
+                    ),
+                )
+            )
+        // For each stream, generate a record containing every field in the schema
+        val messages = catalog.streams.map {
+            DestinationRecord(
+                it.descriptor,
+                ObjectValue(
+                    (it.schema as ObjectType).properties.mapValuesTo(linkedMapOf()) {
+                        IntegerValue(42)
+                    }
+                ),
+                1234,
+                meta = null,
+                serialized = "",
+            )
+        }
+        runSync(config, catalog, messages)
+        assertAll(
+            catalog.streams.map { stream ->
+                {
+                    dumpAndDiffRecords(
+                        listOf(
+                            OutputRecord(
+                                extractedAt = 1234,
+                                generationId = 0,
+                                data = (stream.schema as ObjectType).properties.mapValuesTo(linkedMapOf()) { 42 },
+                                airbyteMeta = OutputRecord.Meta(changes = null, syncId = 42)
+                            )
+                        ),
+                        stream.descriptor.name,
+                        stream.descriptor.namespace,
+                        primaryKey = listOf(listOf("id")),
+                        cursor = null,
+                    )
+                }
+            }
+        )
+    }
+
+    companion object {
+        private val intType = FieldType(IntegerType, nullable = true)
     }
 }
