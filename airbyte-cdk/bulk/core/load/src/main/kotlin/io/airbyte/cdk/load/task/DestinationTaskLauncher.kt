@@ -22,9 +22,11 @@ import io.airbyte.cdk.load.task.internal.InputConsumerTask
 import io.airbyte.cdk.load.task.internal.SpillToDiskTaskFactory
 import io.airbyte.cdk.load.task.internal.TimedForcedCheckpointFlushTask
 import io.airbyte.cdk.load.task.internal.UpdateCheckpointsTask
+import io.airbyte.cdk.load.util.setOnce
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.micronaut.context.annotation.Secondary
 import jakarta.inject.Singleton
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -105,6 +107,8 @@ class DefaultDestinationTaskLauncher(
     private val log = KotlinLogging.logger {}
 
     private val batchUpdateLock = Mutex()
+
+    private val teardownIsEnqueued = AtomicBoolean(false)
 
     private suspend fun enqueue(task: LeveledTask) {
         taskScopeProvider.launch(exceptionHandler.withExceptionHandling(task))
@@ -202,7 +206,11 @@ class DefaultDestinationTaskLauncher(
 
     /** Called when a stream is closed. */
     override suspend fun handleStreamClosed(stream: DestinationStream) {
-        enqueue(teardownTaskFactory.make(this))
+        if (teardownIsEnqueued.setOnce()) {
+            enqueue(teardownTaskFactory.make(this))
+        } else {
+            log.info { "Teardown task already enqueued, not enqueuing another one" }
+        }
     }
 
     /** Called exactly once when all streams are closed. */
